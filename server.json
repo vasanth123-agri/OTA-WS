@@ -1,18 +1,18 @@
 const express = require('express');
 const { WebSocketServer } = require('ws');
 const multer = require('multer');
-const fs = require('fs');
-const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.static('public'));
 
+// Store uploaded firmware
 const upload = multer({ dest: 'firmware/' });
 app.post('/upload', upload.single('firmware'), (req, res) => res.send('Firmware uploaded'));
 
-// OTA trigger
+// OTA endpoint
+let devices = [];
 app.get('/ota/:deviceId', (req, res) => {
   const { deviceId } = req.params;
   const device = devices.find(d => d.id === deviceId);
@@ -29,11 +29,9 @@ app.get('/ota/:deviceId', (req, res) => {
   }
 });
 
-const server = app.listen(PORT, () => console.log(`HTTP server running on port ${PORT}`));
+const server = app.listen(PORT, () => console.log(`Backend server running on ${PORT}`));
 
-// WebSocket
 const wss = new WebSocketServer({ server });
-let devices = [];
 
 wss.on('connection', (ws, req) => {
   console.log('Device connected');
@@ -61,7 +59,6 @@ wss.on('connection', (ws, req) => {
       }
 
       if(data.type === 'wifi-config'){
-        logMsg(`Wi-Fi config received for all devices`);
         devices.forEach(d => d.ws.send(JSON.stringify({ type: 'wifi-status', id: d.id, status: 'Received' })));
       }
 
@@ -72,7 +69,7 @@ wss.on('connection', (ws, req) => {
 
   ws.on('close', () => {
     const dev = devices.find(d => d.ws === ws);
-    if(dev) {
+    if(dev){
       dev.status = 'Offline';
       broadcastDeviceList();
     }
@@ -89,5 +86,3 @@ function broadcastDeviceList(){
   }));
   devices.forEach(d => d.ws.send(JSON.stringify({ type: 'device-list', devices: list })));
 }
-
-function logMsg(msg){ console.log(msg); }
