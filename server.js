@@ -11,11 +11,11 @@ app.use(express.static('public'));
 const upload = multer({ dest: 'firmware/' });
 app.post('/upload', upload.single('firmware'), (req, res) => res.send('Firmware uploaded'));
 
-app.get('/health',(req,res)=>{
-  res.status(200
-).json({
-    message:"success"
-})
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    message: "success"
+  });
+});
 // OTA endpoint
 let devices = [];
 app.get('/ota/:deviceId', (req, res) => {
