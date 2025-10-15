@@ -1,0 +1,93 @@
+const express = require('express');
+const { WebSocketServer } = require('ws');
+const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(express.static('public'));
+
+const upload = multer({ dest: 'firmware/' });
+app.post('/upload', upload.single('firmware'), (req, res) => res.send('Firmware uploaded'));
+
+// OTA trigger
+app.get('/ota/:deviceId', (req, res) => {
+  const { deviceId } = req.params;
+  const device = devices.find(d => d.id === deviceId);
+  if(device && device.ws){
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += 10;
+      device.ws.send(JSON.stringify({ type: 'ota-progress', id: deviceId, progress }));
+      if(progress >= 100) clearInterval(interval);
+    }, 500);
+    res.send(`OTA started for device ${deviceId}`);
+  } else {
+    res.status(404).send('Device not found');
+  }
+});
+
+const server = app.listen(PORT, () => console.log(`HTTP server running on port ${PORT}`));
+
+// WebSocket
+const wss = new WebSocketServer({ server });
+let devices = [];
+
+wss.on('connection', (ws, req) => {
+  console.log('Device connected');
+
+  ws.on('message', msg => {
+    try {
+      const data = JSON.parse(msg);
+
+      if(data.type === 'register'){
+        const existing = devices.find(d => d.id === data.id);
+        if(existing){
+          existing.status = 'Online';
+          existing.ws = ws;
+        } else {
+          devices.push({
+            id: data.id,
+            mac: data.mac,
+            ip: req.socket.remoteAddress,
+            firmware: data.firmware || '1.0.0',
+            status: 'Online',
+            ws
+          });
+        }
+        broadcastDeviceList();
+      }
+
+      if(data.type === 'wifi-config'){
+        logMsg(`Wi-Fi config received for all devices`);
+        devices.forEach(d => d.ws.send(JSON.stringify({ type: 'wifi-status', id: d.id, status: 'Received' })));
+      }
+
+    } catch(e){
+      console.error('Invalid message', e);
+    }
+  });
+
+  ws.on('close', () => {
+    const dev = devices.find(d => d.ws === ws);
+    if(dev) {
+      dev.status = 'Offline';
+      broadcastDeviceList();
+    }
+  });
+});
+
+function broadcastDeviceList(){
+  const list = devices.map(d => ({
+    id: d.id,
+    mac: d.mac,
+    ip: d.ip,
+    firmware: d.firmware,
+    status: d.status
+  }));
+  devices.forEach(d => d.ws.send(JSON.stringify({ type: 'device-list', devices: list })));
+}
+
+function logMsg(msg){ console.log(msg); }
